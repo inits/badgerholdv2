@@ -22,7 +22,6 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"time"
 
 	badgerhold "github.com/inits/badgerholdv2"
@@ -33,9 +32,9 @@ import (
 // Item ...
 type Item struct {
 	ID       int
-	Category string `badgerholdIndex:"Category"`
+	Category string `badgerholdIndex:"Category"` //建立索引，不知道实际效果是不是更快
 	Created  time.Time
-	Qiaos    string
+	Qiaos    string `badgerhold:"unique"` // 设定这个字段的值的唯一性
 }
 
 var data = []Item{
@@ -43,7 +42,7 @@ var data = []Item{
 		ID:       0,
 		Category: "blue",
 		Created:  time.Now().Add(-4 * time.Hour),
-		Qiaos:    "puqiaoming",
+		Qiaos:    "puqiaoming3",
 	},
 	{
 		ID:       1,
@@ -55,23 +54,16 @@ var data = []Item{
 		ID:       2,
 		Category: "blue",
 		Created:  time.Now().Add(-2 * time.Hour),
-		Qiaos:    "puqiaoming",
+		Qiaos:    "puqiaoming2",
 	},
 	{
 		ID:       3,
 		Category: "blue",
 		Created:  time.Now().Add(-20 * time.Minute),
-		Qiaos:    "puqiaoming",
+		Qiaos:    "puqiaoming1",
 	},
 }
 
-func tempdir() string {
-	name, err := ioutil.TempDir("/tmp", "badgerhold-")
-	if err != nil {
-		panic(err)
-	}
-	return name
-}
 func main() {
 
 	opts := badgerhold.DefaultOptions
@@ -85,31 +77,72 @@ func main() {
 
 	defer store.Close()
 
+	// TxInsert 写入数据库
 	err = store.Badger().Update(func(tx *badger.Txn) error {
 		for i := range data {
 			fmt.Println(data[i].ID, data[i])
-			err := store.TxInsert(tx, data[i].ID, data[i])
+			err := store.TxInsert(tx, badgerhold.NextSequence(), data[i]) //badgerhold.NextSequence() 自增id
 			if err != nil {
+				fmt.Println("inset error:", err)
 				return err
 			}
 		}
-		return nil
+		return err
 	})
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	// find all items in
-
+	// Find 查找给定数据
 	var result []Item
-	err = store.Find(&result, badgerhold.Where("Category").Eq("blue").And("Created").Ge(time.Now().Add(-10*time.Hour)))
+	err = store.Find(&result, badgerhold.Where("Category").Ne(""))
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(result)
 
+	// TxDeleteMatching 删除匹配
+	err = store.Badger().Update(func(tx *badger.Txn) error {
+		err = store.TxDeleteMatching(tx, &Item{}, badgerhold.Where("Category").Eq("red"))
+		if err != nil {
+			fmt.Println(err)
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		fmt.Println("delete error:", err)
+	}
+
+	// TxUpdateMatching 删除匹配
+	err = store.Badger().Update(func(tx *badger.Txn) error {
+		store.TxUpdateMatching(tx, &Item{}, badgerhold.Where("Qiaos").In("puqiaoming2", "puqiaoming3"), func(record interface{}) error {
+			update, ok := record.(*Item)
+			if !ok {
+				return fmt.Errorf("Record isn't the correct type!  Wanted Item, got %T", record)
+			}
+			fmt.Println("update struct:", update)
+			update.Category = "yellows"
+			return nil
+		})
+
+		return nil
+	})
+
+	if err != nil {
+		fmt.Println("update1 error:", err)
+	}
+
+	// find all items in
+	var result1 []Item
+	err = store.Find(&result1, badgerhold.Where("Qiaos").Ne(""))
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	fmt.Println(result)
+	fmt.Println(result1)
 }
+
 
 ```
 
