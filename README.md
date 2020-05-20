@@ -16,6 +16,103 @@ instead of [Bolt](https://github.com/etcd-io/bbolt).  For a performance comparis
 https://blog.dgraph.io/post/badger-lmdb-boltdb/.  I've written up my own comparison of the two focusing on 
 characteristics *other* than performance here: https://tech.townsourced.com/post/boltdb-vs-badger/.
 
+## Use badger aes example
+```
+package main
+
+import (
+	"fmt"
+	"io/ioutil"
+	"time"
+
+	badgerhold "github.com/inits/badgerholdv2"
+
+	badger "github.com/dgraph-io/badger/v2"
+)
+
+// Item ...
+type Item struct {
+	ID       int
+	Category string `badgerholdIndex:"Category"`
+	Created  time.Time
+	Qiaos    string
+}
+
+var data = []Item{
+	{
+		ID:       0,
+		Category: "blue",
+		Created:  time.Now().Add(-4 * time.Hour),
+		Qiaos:    "puqiaoming",
+	},
+	{
+		ID:       1,
+		Category: "red",
+		Created:  time.Now().Add(-3 * time.Hour),
+		Qiaos:    "puqiaoming",
+	},
+	{
+		ID:       2,
+		Category: "blue",
+		Created:  time.Now().Add(-2 * time.Hour),
+		Qiaos:    "puqiaoming",
+	},
+	{
+		ID:       3,
+		Category: "blue",
+		Created:  time.Now().Add(-20 * time.Minute),
+		Qiaos:    "puqiaoming",
+	},
+}
+
+func tempdir() string {
+	name, err := ioutil.TempDir("/tmp", "badgerhold-")
+	if err != nil {
+		panic(err)
+	}
+	return name
+}
+func main() {
+
+	opts := badgerhold.DefaultOptions
+	opts.Options = badger.DefaultOptions("/tmp/badgerhold/qms").WithEncryptionKey([]byte("1234567890123456"))
+	//opts.Options = badger.DefaultOptions("/tmp/badgerhold/qms")
+
+	store, err := badgerhold.Open(opts)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	defer store.Close()
+
+	err = store.Badger().Update(func(tx *badger.Txn) error {
+		for i := range data {
+			fmt.Println(data[i].ID, data[i])
+			err := store.TxInsert(tx, data[i].ID, data[i])
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	// find all items in
+
+	var result []Item
+	err = store.Find(&result, badgerhold.Where("Category").Eq("blue").And("Created").Ge(time.Now().Add(-10*time.Hour)))
+
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	fmt.Println(result)
+}
+
+```
+
 ## Indexes
 Indexes allow you to skip checking any records that don't meet your index criteria.  If you have 1000 records and only
 10 of them are of the Division you want to deal with, then you don't need to check to see if the other 990 records match
